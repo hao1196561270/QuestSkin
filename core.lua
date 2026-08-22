@@ -14,6 +14,7 @@ local defaults = {
     x = -32,
     y = -200,
     width = 260,
+    maxHeight = 420,
 }
 
 -- 主容器（可拖动）
@@ -78,22 +79,44 @@ scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -26, 8) -- 26 给滚动条�
 local content = CreateFrame("Frame", nil, scroll)
 content:SetSize(defaults.width - 34, 1)
 scroll:SetScrollChild(content)
--- 极简滚动条：只保留滑块，隐藏背景轨道
+-- 极简滚动条：默认隐藏，仅滚轮时显现
 if scroll.ScrollBar then
-    scroll.ScrollBar:SetAlpha(0.55)
-    -- 尝试隐藏轨道背景（不同客户端模板名不同，安全尝试）
+    scroll.ScrollBar:Hide()
+    scroll.ScrollBar:SetAlpha(0.85)
     if scroll.ScrollBar.Background then scroll.ScrollBar.Background:Hide() end
     if scroll.ScrollBar.Track then scroll.ScrollBar.Track:Hide() end
 end
--- 鼠标滚轮滚动
+-- 滚动条自动隐藏定时器
+local scrollFadeTimer = nil
+local function ShowScrollBarTemporarily()
+    if not scroll.ScrollBar then return end
+    if scroll:GetVerticalScrollRange() == 0 then return end
+    scroll.ScrollBar:Show()
+    scroll.ScrollBar:SetAlpha(0.85)
+    if scrollFadeTimer then scrollFadeTimer:Cancel() end
+    scrollFadeTimer = C_Timer.NewTimer(1.2, function()
+        -- 淡出
+        if scroll.ScrollBar then
+            UIFrameFadeOut(scroll.ScrollBar, 0.4, 0.85, 0)
+            C_Timer.After(0.45, function()
+                if scroll.ScrollBar then scroll.ScrollBar:Hide(); scroll.ScrollBar:SetAlpha(0.85) end
+            end)
+        end
+    end)
+end
+-- 鼠标滚轮滚动（仅此时显示滚动条）
 scroll:EnableMouseWheel(true)
 scroll:SetScript("OnMouseWheel", function(self, delta)
-    local cur = self:GetVerticalScroll()
     local max = self:GetVerticalScrollRange()
-    local step = 30
+    if max == 0 then return end
+    local cur = self:GetVerticalScroll()
+    local step = 40
     local next = math.max(0, math.min(max, cur - delta * step))
     self:SetVerticalScroll(next)
+    ShowScrollBarTemporarily()
 end)
+-- 鼠标移入也短暂提示可滚动
+scroll:SetScript("OnEnter", function() ShowScrollBarTemporarily() end)
 
 local blocks = {} -- 当前渲染的块
 
@@ -320,19 +343,17 @@ local function UpdateTracker()
     end
     local totalH = math.abs(y) + 6
     content:SetHeight(totalH)
-    -- 外框高度 = 标题 24 + 分隔 7 + 内容 + 边距；固定宽 Q19 A，高度自适应但不超过屏幕 60%
-    local maxH = UIParent:GetHeight() * 0.6
+    -- 外框高度 = 标题 + 分隔 + 内容 + 边距；上限取设置里的 maxHeight 与屏幕 85% 的较小值
+    local configuredMax = QuestSkinDB.maxHeight or defaults.maxHeight
+    local screenCap = UIParent:GetHeight() * 0.85
+    local maxH = math.min(configuredMax, screenCap)
     local wantH = totalH + 46
     local finalH = math.min(wantH, maxH)
     frame:SetHeight(finalH)
-    -- 超出则可滚动，否则回到顶部
-    if wantH > maxH then
-        scroll:SetVerticalScroll(0)
-        if scroll.ScrollBar then scroll.ScrollBar:Show() end
-    else
-        scroll:SetVerticalScroll(0)
-        if scroll.ScrollBar then scroll.ScrollBar:Hide() end
-    end
+    -- 滚动逻辑：超出则启用滚轮，滚动条默认隐藏（仅滚轮时显现）
+    scroll:SetVerticalScroll(0)
+    if scroll.ScrollBar then scroll.ScrollBar:Hide(); scroll.ScrollBar:SetAlpha(0.85) end
+    scroll:EnableMouseWheel(wantH > maxH)
 end
 
 -- 官方框显隐
@@ -393,12 +414,19 @@ ev:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
--- 宽度调整（供将来设置面板扩展）
+-- 宽度调整
 function QS.SetWidth(w)
-    w = math.max(200, math.min(400, w or defaults.width))
+    w = math.max(200, math.min(420, w or defaults.width))
     QuestSkinDB.width = w
     frame:SetWidth(w)
     content:SetWidth(w - 34)
+    UpdateTracker()
+end
+
+-- 高度调整（最大高度，放不下时出现滚轮滚动条）
+function QS.SetMaxHeight(h)
+    h = math.max(180, math.min(700, h or defaults.maxHeight))
+    QuestSkinDB.maxHeight = h
     UpdateTracker()
 end
 
@@ -409,13 +437,17 @@ function QS.ResetPosition()
     QuestSkinDB.x = defaults.x
     QuestSkinDB.y = defaults.y
     QuestSkinDB.width = defaults.width
+    QuestSkinDB.maxHeight = defaults.maxHeight
     frame:ClearAllPoints()
     frame:SetPoint(defaults.point, UIParent, defaults.relativePoint, defaults.x, defaults.y)
     frame:SetWidth(defaults.width)
     content:SetWidth(defaults.width - 34)
     frame:SetClampedToScreen(true)
+    -- 同步设置面板滑条（若已创建）
+    if QuestSkin_WidthSlider then QuestSkin_WidthSlider:SetValue(defaults.width) end
+    if QuestSkin_HeightSlider then QuestSkin_HeightSlider:SetValue(defaults.maxHeight) end
     UpdateTracker()
-    print("|cff88ff88QuestSkin|r: 已重置位置到右上 -32,-200，宽度 260")
+    print("|cff88ff88QuestSkin|r: 已重置位置到右上 -32,-200，宽度 260 高度 420")
 end
 
 QS.UpdateTracker = UpdateTracker
