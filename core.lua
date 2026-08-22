@@ -1,0 +1,346 @@
+-- core.lua — QuestSkin v1.0 极简重绘核心
+-- 约定：v1.0 严格纯美化，不做进度百分比等功能增强
+local ADDON = "QuestSkin"
+local L = QuestSkin_L or setmetatable({}, { __index = function(_, k) return k end })
+
+QuestSkin = QuestSkin or {}
+local QS = QuestSkin
+
+-- 默认存档
+local defaults = {
+    enabled = true,
+    point = "TOPRIGHT",
+    relativePoint = "TOPRIGHT",
+    x = -60,
+    y = -200,
+    width = 260,
+}
+
+-- 主容器（可拖动）
+local frame = CreateFrame("Frame", "QuestSkinFrame", UIParent, "BackdropTemplate")
+frame:SetSize(defaults.width, 100)
+frame:SetClampedToScreen(true)
+frame:SetMovable(true)
+frame:EnableMouse(true)
+frame:RegisterForDrag("LeftButton")
+-- 极简：只有 1px 细线边框，无填充
+frame:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8x8",
+    edgeFile = "Interface\\Buttons\\WHITE8x8",
+    edgeSize = 1,
+    insets = { left = 1, right = 1, top = 1, bottom = 1 },
+})
+frame:SetBackdropColor(0, 0, 0, 0.0)          -- 透明底
+frame:SetBackdropBorderColor(1, 1, 1, 0.12)   -- 细线
+
+-- 拖动保存
+frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+frame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local point, _, relativePoint, x, y = self:GetPoint()
+    QuestSkinDB.point = point
+    QuestSkinDB.relativePoint = relativePoint
+    QuestSkinDB.x = x
+    QuestSkinDB.y = y
+end)
+
+-- 标题栏
+local header = CreateFrame("Frame", nil, frame)
+header:SetPoint("TOPLEFT", 8, -8)
+header:SetPoint("TOPRIGHT", -8, -8)
+header:SetHeight(18)
+
+local headerText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+headerText:SetPoint("LEFT", 0, 0)
+headerText:SetTextColor(0.9, 0.9, 0.9)
+headerText:SetText(L["Quests"] .. "  0")
+
+local headerHint = header:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+headerHint:SetPoint("RIGHT", 0, 0)
+headerHint:SetTextColor(0.5, 0.5, 0.5)
+headerHint:SetText(L["Drag to move"])
+
+-- 分隔线（标题下）
+local sep = header:CreateTexture(nil, "ARTWORK")
+sep:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -6)
+sep:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, -6)
+sep:SetHeight(1)
+sep:SetColorTexture(1, 1, 1, 0.08)
+
+-- 内容容器（ScrollFrame，固定宽+超出滚动）
+local scroll = CreateFrame("ScrollFrame", "QuestSkinScrollFrame", frame, "UIPanelScrollFrameTemplate")
+scroll:SetPoint("TOPLEFT", sep, "BOTTOMLEFT", 0, -6)
+scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -26, 8) -- 26 给滚动条留空
+
+local content = CreateFrame("Frame", nil, scroll)
+content:SetSize(defaults.width - 34, 1)
+scroll:SetScrollChild(content)
+-- 隐藏丑陋的滚动条背景，做极简
+if scroll.ScrollBar then
+    scroll.ScrollBar:SetAlpha(0.5)
+end
+
+local blocks = {} -- 当前渲染的块
+
+local function ClearBlocks()
+    for _, b in ipairs(blocks) do b:Hide(); b:SetParent(nil) end
+    wipe(blocks)
+end
+
+-- 颜色（保留暴雪字体，只改颜色与间距）
+local COLOR_TITLE = { r=1, g=0.82, b=0 }          -- 任务标题：金色
+local COLOR_OBJ_INCOMPLETE = { r=0.95, g=0.95, b=0.95 }
+local COLOR_OBJ_COMPLETE   = { r=0.35, g=1, b=0.35 }
+local COLOR_EMPTY = { r=0.5, g=0.5, b=0.5 }
+
+local function OpenQuestLog(questID)
+    if QuestMapFrame_OpenToQuestDetails then
+        if not QuestMapFrame:IsShown() then ShowUIPanel(QuestMapFrame) end
+        QuestMapFrame_OpenToQuestDetails(questID)
+    elseif ToggleQuestLog then
+        ToggleQuestLog()
+    elseif QuestLogEx then -- 兼容
+        QuestLogEx:ShowQuest(questID)
+    end
+end
+
+local function CreateQuestBlock(questID, title, objectives, index, anchorY)
+    local b = CreateFrame("Button", nil, content)
+    b:SetPoint("TOPLEFT", 0, anchorY)
+    b:SetPoint("TOPRIGHT", 0, anchorY)
+    b:RegisterForClicks("LeftButtonUp")
+    b:SetScript("OnClick", function() OpenQuestLog(questID) end)
+    b:SetScript("OnEnter", function(self)
+        self.hl:Show()
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(title)
+        GameTooltip:AddLine(L["Drag to move"] .. " | " .. L["Quests"], 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function(self) self.hl:Hide(); GameTooltip:Hide() end)
+
+    -- hover 高亮（极淡）
+    local hl = b:CreateTexture(nil, "BACKGROUND")
+    hl:SetAllPoints()
+    hl:SetColorTexture(1, 1, 1, 0.04)
+    hl:Hide()
+    b.hl = hl
+
+    -- 左侧 2px 指示线
+    local accent = b:CreateTexture(nil, "ARTWORK")
+    accent:SetPoint("TOPLEFT", 0, 0)
+    accent:SetPoint("BOTTOMLEFT", 0, 0)
+    accent:SetWidth(2)
+    -- 有完成项则绿，否则淡白
+    local hasComplete = false
+    for _, o in ipairs(objectives or {}) do if o.finished then hasComplete = true; break end end
+    if hasComplete then
+        accent:SetColorTexture(COLOR_OBJ_COMPLETE.r, COLOR_OBJ_COMPLETE.g, COLOR_OBJ_COMPLETE.b, 0.9)
+    else
+        accent:SetColorTexture(1, 1, 1, 0.18)
+    end
+
+    local titleFS = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    titleFS:SetPoint("TOPLEFT", 8, -6)
+    titleFS:SetPoint("TOPRIGHT", -6, -6)
+    titleFS:SetJustifyH("LEFT")
+    titleFS:SetWordWrap(true) -- Q21 A 自动换行
+    -- Q17 刻意保留暴雪字体：不设 Font，只用模板字体的颜色
+    titleFS:SetTextColor(COLOR_TITLE.r, COLOR_TITLE.g, COLOR_TITLE.b)
+    titleFS:SetText(title or ("Quest " .. tostring(questID)))
+    titleFS:SetSpacing(2)
+
+    local y = - (titleFS:GetStringHeight() + 10)
+
+    -- 目标行
+    local objFSList = {}
+    if objectives and #objectives > 0 then
+        for _, obj in ipairs(objectives) do
+            local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetPoint("TOPLEFT", 14, y)
+            fs:SetPoint("TOPRIGHT", -6, y)
+            fs:SetJustifyH("LEFT")
+            fs:SetWordWrap(true)
+            fs:SetSpacing(1)
+            local col = obj.finished and COLOR_OBJ_COMPLETE or COLOR_OBJ_INCOMPLETE
+            fs:SetTextColor(col.r, col.g, col.b)
+            -- 前缀圆点
+            local prefix = obj.finished and "● " or "○ "
+            fs:SetText(prefix .. (obj.text or ""))
+            y = y - (fs:GetStringHeight() + 4)
+            table.insert(objFSList, fs)
+        end
+    else
+        local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("TOPLEFT", 14, y)
+        fs:SetPoint("TOPRIGHT", -6, y)
+        fs:SetJustifyH("LEFT")
+        fs:SetWordWrap(true)
+        fs:SetTextColor(COLOR_EMPTY.r, COLOR_EMPTY.g, COLOR_EMPTY.b)
+        fs:SetText("—")
+        y = y - (fs:GetStringHeight() + 4)
+    end
+
+    -- 底部细分隔线（块之间，极简）
+    local line = b:CreateTexture(nil, "ARTWORK")
+    line:SetPoint("BOTTOMLEFT", 8, 0)
+    line:SetPoint("BOTTOMRIGHT", -6, 0)
+    line:SetHeight(1)
+    line:SetColorTexture(1, 1, 1, 0.06)
+
+    local h = math.abs(y) + 6
+    b:SetHeight(h)
+    return b, h
+end
+
+local function GetWatchedQuests()
+    local out = {}
+    if C_QuestLog and C_QuestLog.GetNumQuestLogEntries then
+        local num = C_QuestLog.GetNumQuestLogEntries()
+        for i = 1, num do
+            local info = C_QuestLog.GetInfo(i)
+            if info and not info.isHeader and info.isWatched and info.questID then
+                table.insert(out, { questID = info.questID, title = info.title })
+            end
+        end
+    elseif GetNumQuestWatches then
+        -- 经典 fallback
+        local n = GetNumQuestWatches()
+        for i = 1, n do
+            local qid = C_QuestLog and C_QuestLog.GetQuestIDForQuestWatchIndex and C_QuestLog.GetQuestIDForQuestWatchIndex(i) or GetQuestIDForQuestWatchIndex(i)
+            if qid then
+                local title = (C_QuestLog and C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(qid)) or GetQuestLogTitle(GetQuestLogIndexByID(qid)) or tostring(qid)
+                table.insert(out, { questID = qid, title = title })
+            end
+        end
+    end
+    return out
+end
+
+local function GetObjectives(questID)
+    if C_QuestLog and C_QuestLog.GetQuestObjectives then
+        local t = C_QuestLog.GetQuestObjectives(questID)
+        if t then return t end
+    end
+    -- fallback: leaderboard
+    local out = {}
+    local idx = GetQuestLogIndexByID and GetQuestLogIndexByID(questID)
+    if idx then
+        local num = GetNumQuestLeaderBoards and GetNumQuestLeaderBoards(idx) or 0
+        for i = 1, num do
+            local text, type, finished = GetQuestLogLeaderBoard(i, idx)
+            if text then table.insert(out, { text = text, type = type, finished = finished }) end
+        end
+    end
+    return out
+end
+
+local function UpdateTracker()
+    if not QuestSkinDB or not QuestSkinDB.enabled then return end
+    ClearBlocks()
+    local watched = GetWatchedQuests()
+    headerText:SetText(string.format("%s  %d", L["Quests"], #watched))
+
+    if #watched == 0 then
+        local b = CreateFrame("Frame", nil, content)
+        b:SetPoint("TOPLEFT", 0, 0)
+        b:SetPoint("TOPRIGHT", 0, 0)
+        b:SetHeight(28)
+        local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetAllPoints()
+        fs:SetJustifyH("CENTER")
+        fs:SetTextColor(COLOR_EMPTY.r, COLOR_EMPTY.g, COLOR_EMPTY.b)
+        fs:SetText(L["No tracked quests"])
+        table.insert(blocks, b)
+        content:SetHeight(28)
+        frame:SetHeight(60)
+        return
+    end
+
+    local y = 0
+    local gap = 8 -- Q7 布局间距：块间距
+    for i, q in ipairs(watched) do
+        local objs = GetObjectives(q.questID)
+        local b, h = CreateQuestBlock(q.questID, q.title, objs, i, y)
+        table.insert(blocks, b)
+        y = y - (h + gap)
+    end
+    local totalH = math.abs(y) + 6
+    content:SetHeight(totalH)
+    -- 外框高度 = 标题 24 + 分隔 7 + 内容 + 边距；固定宽 Q19 A，高度自适应但不超过屏幕 60%
+    local maxH = UIParent:GetHeight() * 0.6
+    local wantH = totalH + 46
+    frame:SetHeight(math.min(wantH, maxH))
+    -- 内容宽度跟随设置宽度
+    content:SetWidth((QuestSkinDB.width or defaults.width) - 34)
+end
+
+-- 官方框显隐
+local hooked = false
+local function HookObjectiveTracker()
+    if hooked or not ObjectiveTrackerFrame then return end
+    hooksecurefunc(ObjectiveTrackerFrame, "Show", function(self)
+        if QuestSkinDB and QuestSkinDB.enabled then self:Hide() end
+    end)
+    hooked = true
+end
+
+function QS.ApplyEnabled(enabled)
+    QuestSkinDB.enabled = enabled and true or false
+    if enabled then
+        HookObjectiveTracker()
+        if ObjectiveTrackerFrame then ObjectiveTrackerFrame:Hide() end
+        frame:Show()
+        UpdateTracker()
+    else
+        frame:Hide()
+        if ObjectiveTrackerFrame then ObjectiveTrackerFrame:Show() end
+    end
+    if QuestSkin_EnableCheck then QuestSkin_EnableCheck:SetChecked(enabled) end
+end
+
+-- 事件
+local ev = CreateFrame("Frame")
+ev:RegisterEvent("ADDON_LOADED")
+ev:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
+ev:RegisterEvent("QUEST_LOG_UPDATE")
+ev:RegisterEvent("QUEST_ACCEPTED")
+ev:RegisterEvent("QUEST_REMOVED")
+ev:RegisterEvent("ZONE_CHANGED")
+ev:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+ev:SetScript("OnEvent", function(_, event, arg1)
+    if event == "ADDON_LOADED" then
+        if arg1 ~= ADDON then return end
+        QuestSkinDB = QuestSkinDB or {}
+        for k, v in pairs(defaults) do if QuestSkinDB[k] == nil then QuestSkinDB[k] = v end end
+        -- 恢复位置与宽度
+        frame:ClearAllPoints()
+        frame:SetPoint(QuestSkinDB.point, UIParent, QuestSkinDB.relativePoint, QuestSkinDB.x, QuestSkinDB.y)
+        frame:SetWidth(QuestSkinDB.width)
+        content:SetWidth(QuestSkinDB.width - 34)
+        if QuestSkin_EnableCheck then QuestSkin_EnableCheck:SetChecked(QuestSkinDB.enabled) end
+        QS.ApplyEnabled(QuestSkinDB.enabled)
+        HookObjectiveTracker()
+        C_Timer.After(0.5, UpdateTracker)
+    elseif QuestSkinDB and QuestSkinDB.enabled then
+        -- 节流：QUEST_LOG_UPDATE 很频繁
+        if ev._timer then return end
+        ev._timer = true
+        C_Timer.After(0.2, function()
+            ev._timer = nil
+            UpdateTracker()
+        end)
+    end
+end)
+
+-- 宽度调整（供将来设置面板扩展）
+function QS.SetWidth(w)
+    w = math.max(200, math.min(400, w or defaults.width))
+    QuestSkinDB.width = w
+    frame:SetWidth(w)
+    content:SetWidth(w - 34)
+    UpdateTracker()
+end
+
+QS.UpdateTracker = UpdateTracker
+_G.QuestSkinFrame = frame
