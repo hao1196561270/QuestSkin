@@ -328,12 +328,9 @@ local function GetObjectives(questID)
 end
 
 local function IsAnyMapShown()
+    -- 仅用 IsShown 判定，避免 IsVisible/MapCanvas 常驻导致的误藏
     if WorldMapFrame and WorldMapFrame:IsShown() then return true end
     if QuestMapFrame and QuestMapFrame:IsShown() then return true end
-    -- Midnight 地图可能用 MapCanvas 承载
-    if MapCanvas and MapCanvas:IsShown() then return true end
-    -- 兜底：WoW API 也有 IsMapOpen 概念
-    if WorldMapFrame and WorldMapFrame.IsShown and WorldMapFrame:IsVisible() then return true end
     return false
 end
 
