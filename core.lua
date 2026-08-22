@@ -305,7 +305,14 @@ end
 
 local function UpdateTracker()
     if not QuestSkinDB or not QuestSkinDB.enabled then return end
+    -- 地图打开期间强制隐藏，避免重叠错位（兜底：钩子未生效时也生效）
+    if WorldMapFrame and WorldMapFrame:IsShown() then
+        frame:Hide()
+        return
+    end
     ClearBlocks()
+    -- 若之前因地图隐藏，这里要恢复显示
+    if not frame:IsShown() then frame:Show() end
     -- 先同步宽度，避免换行高度计算时宽度不对导致“显示不全”
     local w = QuestSkinDB.width or defaults.width
     content:SetWidth(w - 34)
@@ -382,10 +389,17 @@ function QS.ApplyEnabled(enabled)
     if QuestSkin_EnableCheck then QuestSkin_EnableCheck:SetChecked(enabled) end
 end
 
--- 地图打开/关闭时自动显隐，避免错位重叠
+-- 地图打开/关闭时自动显隐，避免错位重叠（双保险：Hook + UpdateTracker 兜底）
 local function SetupMapHandling()
     if not WorldMapFrame then return false end
     if frame._mapHooked then return true end
+    -- HookScript 可能因 taint 失败，改用 hooksecurefunc 更稳
+    hooksecurefunc(WorldMapFrame, "Show", function()
+        if QuestSkinDB and QuestSkinDB.enabled then frame:Hide() end
+    end)
+    hooksecurefunc(WorldMapFrame, "Hide", function()
+        if QuestSkinDB and QuestSkinDB.enabled then frame:Show(); UpdateTracker() end
+    end)
     WorldMapFrame:HookScript("OnShow", function()
         if QuestSkinDB and QuestSkinDB.enabled then frame:Hide() end
     end)
@@ -393,7 +407,6 @@ local function SetupMapHandling()
         if QuestSkinDB and QuestSkinDB.enabled then frame:Show(); UpdateTracker() end
     end)
     frame._mapHooked = true
-    -- 若启动时地图已打开
     if WorldMapFrame:IsShown() and QuestSkinDB and QuestSkinDB.enabled then frame:Hide() end
     return true
 end
@@ -474,6 +487,19 @@ end
 
 -- 启动时也尝试挂钩地图（WorldMapFrame 启动即存在，Blizzard_WorldMap 懒加载再补一次）
 C_Timer.After(1, SetupMapHandling)
+-- 兜底轮询：地图打开期间强制保持隐藏（防止 Hook 被 taint 拦截时仍能生效）
+C_Timer.NewTicker(0.4, function()
+    if not QuestSkinDB or not QuestSkinDB.enabled then return end
+    if not WorldMapFrame then return end
+    if WorldMapFrame:IsShown() then
+        if frame:IsShown() then frame:Hide() end
+    else
+        if not frame:IsShown() then
+            frame:Show()
+            UpdateTracker()
+        end
+    end
+end)
 
 QS.UpdateTracker = UpdateTracker
 _G.QuestSkinFrame = frame
