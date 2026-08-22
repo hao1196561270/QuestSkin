@@ -41,27 +41,32 @@ cb:SetScript("OnClick", function(self)
     end
 end)
 
--- 注册到暴雪设置
+-- 注册到暴雪设置（防重复：Settings API 每次调用都会新建一个条目）
+local registered = false
 local function RegisterSettings()
+    if registered then return end
     if Settings and Settings.RegisterCanvasLayoutCategory then
         local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
         category.ID = panel.name
         Settings.RegisterAddOnCategory(category)
         QuestSkin_SettingsCategory = category
+        registered = true
     elseif InterfaceOptions_AddCategory then
         InterfaceOptions_AddCategory(panel)
+        registered = true
     end
 end
 
--- 延迟注册，等 Blizzard_Settings 加载
+-- 仅在 QuestSkin 加载时注册一次；不再监听 Blizzard_Settings 做二次注册
 local reg = CreateFrame("Frame")
 reg:RegisterEvent("ADDON_LOADED")
 reg:SetScript("OnEvent", function(_, _, name)
-    if name == "QuestSkin" or name == "Blizzard_Settings" then
+    if name == "QuestSkin" then
         RegisterSettings()
+        reg:UnregisterEvent("ADDON_LOADED")
     end
 end)
--- 若已加载直接注册
+-- 兜底：若 ADDON_LOADED 已错过（重载后），下一帧再试一次（带 guard 不会重复）
 C_Timer.After(0, RegisterSettings)
 
 -- 斜杠命令
@@ -79,6 +84,8 @@ SlashCmdList["QUESTSKIN"] = function(msg)
         if QuestSkin.ApplyEnabled then QuestSkin.ApplyEnabled(false) end
         if QuestSkin_EnableCheck then QuestSkin_EnableCheck:SetChecked(false) end
         print("|cffff8888QuestSkin|r: " .. L["Tracker restored"])
+    elseif msg == "reset" then
+        if QuestSkin and QuestSkin.ResetPosition then QuestSkin.ResetPosition() end
     else
         if Settings and Settings.OpenToCategory and QuestSkin_SettingsCategory then
             Settings.OpenToCategory(QuestSkin_SettingsCategory:GetID())
@@ -86,6 +93,6 @@ SlashCmdList["QUESTSKIN"] = function(msg)
             InterfaceOptionsFrame_OpenToCategory(panel)
             InterfaceOptionsFrame_OpenToCategory(panel)
         end
-        print("|cff88ff88QuestSkin|r: /qs on | /qs off | /qs — 打开设置")
+        print("|cff88ff88QuestSkin|r: /qs on | /qs off | /qs reset — 重置位置 | /qs — 打开设置")
     end
 end

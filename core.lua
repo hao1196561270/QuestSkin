@@ -6,12 +6,12 @@ local L = QuestSkin_L or setmetatable({}, { __index = function(_, k) return k en
 QuestSkin = QuestSkin or {}
 local QS = QuestSkin
 
--- 默认存档
+-- 默认存档（-32 更保险，避免不同分辨率下右侧被裁切）
 local defaults = {
     enabled = true,
     point = "TOPRIGHT",
     relativePoint = "TOPRIGHT",
-    x = -60,
+    x = -32,
     y = -200,
     width = 260,
 }
@@ -75,10 +75,22 @@ scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -26, 8) -- 26 给滚动条�
 local content = CreateFrame("Frame", nil, scroll)
 content:SetSize(defaults.width - 34, 1)
 scroll:SetScrollChild(content)
--- 隐藏丑陋的滚动条背景，做极简
+-- 极简滚动条：只保留滑块，隐藏背景轨道
 if scroll.ScrollBar then
-    scroll.ScrollBar:SetAlpha(0.5)
+    scroll.ScrollBar:SetAlpha(0.55)
+    -- 尝试隐藏轨道背景（不同客户端模板名不同，安全尝试）
+    if scroll.ScrollBar.Background then scroll.ScrollBar.Background:Hide() end
+    if scroll.ScrollBar.Track then scroll.ScrollBar.Track:Hide() end
 end
+-- 鼠标滚轮滚动
+scroll:EnableMouseWheel(true)
+scroll:SetScript("OnMouseWheel", function(self, delta)
+    local cur = self:GetVerticalScroll()
+    local max = self:GetVerticalScrollRange()
+    local step = 30
+    local next = math.max(0, math.min(max, cur - delta * step))
+    self:SetVerticalScroll(next)
+end)
 
 local blocks = {} -- 当前渲染的块
 
@@ -238,6 +250,11 @@ end
 local function UpdateTracker()
     if not QuestSkinDB or not QuestSkinDB.enabled then return end
     ClearBlocks()
+    -- 先同步宽度，避免换行高度计算时宽度不对导致“显示不全”
+    local w = QuestSkinDB.width or defaults.width
+    content:SetWidth(w - 34)
+    frame:SetWidth(w)
+
     local watched = GetWatchedQuests()
     headerText:SetText(string.format("%s  %d", L["Quests"], #watched))
 
@@ -254,6 +271,7 @@ local function UpdateTracker()
         table.insert(blocks, b)
         content:SetHeight(28)
         frame:SetHeight(60)
+        scroll:SetVerticalScroll(0)
         return
     end
 
@@ -262,6 +280,8 @@ local function UpdateTracker()
     for i, q in ipairs(watched) do
         local objs = GetObjectives(q.questID)
         local b, h = CreateQuestBlock(q.questID, q.title, objs, i, y)
+        -- 防御：GetStringHeight 在布局前可能返回 0，保底高度
+        if h < 20 then h = 40 end
         table.insert(blocks, b)
         y = y - (h + gap)
     end
@@ -270,9 +290,16 @@ local function UpdateTracker()
     -- 外框高度 = 标题 24 + 分隔 7 + 内容 + 边距；固定宽 Q19 A，高度自适应但不超过屏幕 60%
     local maxH = UIParent:GetHeight() * 0.6
     local wantH = totalH + 46
-    frame:SetHeight(math.min(wantH, maxH))
-    -- 内容宽度跟随设置宽度
-    content:SetWidth((QuestSkinDB.width or defaults.width) - 34)
+    local finalH = math.min(wantH, maxH)
+    frame:SetHeight(finalH)
+    -- 超出则可滚动，否则回到顶部
+    if wantH > maxH then
+        scroll:SetVerticalScroll(0)
+        if scroll.ScrollBar then scroll.ScrollBar:Show() end
+    else
+        scroll:SetVerticalScroll(0)
+        if scroll.ScrollBar then scroll.ScrollBar:Hide() end
+    end
 end
 
 -- 官方框显隐
@@ -340,6 +367,22 @@ function QS.SetWidth(w)
     frame:SetWidth(w)
     content:SetWidth(w - 34)
     UpdateTracker()
+end
+
+-- 重置位置到默认（修复“显示不全/被裁切”时用 /qs reset）
+function QS.ResetPosition()
+    QuestSkinDB.point = defaults.point
+    QuestSkinDB.relativePoint = defaults.relativePoint
+    QuestSkinDB.x = defaults.x
+    QuestSkinDB.y = defaults.y
+    QuestSkinDB.width = defaults.width
+    frame:ClearAllPoints()
+    frame:SetPoint(defaults.point, UIParent, defaults.relativePoint, defaults.x, defaults.y)
+    frame:SetWidth(defaults.width)
+    content:SetWidth(defaults.width - 34)
+    frame:SetClampedToScreen(true)
+    UpdateTracker()
+    print("|cff88ff88QuestSkin|r: 已重置位置到右上 -32,-200，宽度 260")
 end
 
 QS.UpdateTracker = UpdateTracker
