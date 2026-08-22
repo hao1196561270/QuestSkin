@@ -372,12 +372,30 @@ function QS.ApplyEnabled(enabled)
         HookObjectiveTracker()
         if ObjectiveTrackerFrame then ObjectiveTrackerFrame:Hide() end
         frame:Show()
+        -- 地图打开时自动隐藏，避免与地图右侧重叠错位
+        if WorldMapFrame and WorldMapFrame:IsShown() then frame:Hide() end
         UpdateTracker()
     else
         frame:Hide()
         if ObjectiveTrackerFrame then ObjectiveTrackerFrame:Show() end
     end
     if QuestSkin_EnableCheck then QuestSkin_EnableCheck:SetChecked(enabled) end
+end
+
+-- 地图打开/关闭时自动显隐，避免错位重叠
+local function SetupMapHandling()
+    if not WorldMapFrame then return false end
+    if frame._mapHooked then return true end
+    WorldMapFrame:HookScript("OnShow", function()
+        if QuestSkinDB and QuestSkinDB.enabled then frame:Hide() end
+    end)
+    WorldMapFrame:HookScript("OnHide", function()
+        if QuestSkinDB and QuestSkinDB.enabled then frame:Show(); UpdateTracker() end
+    end)
+    frame._mapHooked = true
+    -- 若启动时地图已打开
+    if WorldMapFrame:IsShown() and QuestSkinDB and QuestSkinDB.enabled then frame:Hide() end
+    return true
 end
 
 -- 事件
@@ -391,18 +409,22 @@ ev:RegisterEvent("ZONE_CHANGED")
 ev:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 ev:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
-        if arg1 ~= ADDON then return end
-        QuestSkinDB = QuestSkinDB or {}
-        for k, v in pairs(defaults) do if QuestSkinDB[k] == nil then QuestSkinDB[k] = v end end
-        -- 恢复位置与宽度
-        frame:ClearAllPoints()
-        frame:SetPoint(QuestSkinDB.point, UIParent, QuestSkinDB.relativePoint, QuestSkinDB.x, QuestSkinDB.y)
-        frame:SetWidth(QuestSkinDB.width)
-        content:SetWidth(QuestSkinDB.width - 34)
-        if QuestSkin_EnableCheck then QuestSkin_EnableCheck:SetChecked(QuestSkinDB.enabled) end
-        QS.ApplyEnabled(QuestSkinDB.enabled)
-        HookObjectiveTracker()
-        C_Timer.After(0.5, UpdateTracker)
+        if arg1 == ADDON then
+            QuestSkinDB = QuestSkinDB or {}
+            for k, v in pairs(defaults) do if QuestSkinDB[k] == nil then QuestSkinDB[k] = v end end
+            -- 恢复位置与宽度
+            frame:ClearAllPoints()
+            frame:SetPoint(QuestSkinDB.point, UIParent, QuestSkinDB.relativePoint, QuestSkinDB.x, QuestSkinDB.y)
+            frame:SetWidth(QuestSkinDB.width)
+            content:SetWidth(QuestSkinDB.width - 34)
+            if QuestSkin_EnableCheck then QuestSkin_EnableCheck:SetChecked(QuestSkinDB.enabled) end
+            QS.ApplyEnabled(QuestSkinDB.enabled)
+            HookObjectiveTracker()
+            SetupMapHandling()
+            C_Timer.After(0.5, UpdateTracker)
+        elseif arg1 == "Blizzard_WorldMap" then
+            SetupMapHandling()
+        end
     elseif QuestSkinDB and QuestSkinDB.enabled then
         -- 节流：QUEST_LOG_UPDATE 很频繁
         if ev._timer then return end
@@ -449,6 +471,9 @@ function QS.ResetPosition()
     UpdateTracker()
     print("|cff88ff88QuestSkin|r: 已重置位置到右上 -32,-200，宽度 260 高度 420")
 end
+
+-- 启动时也尝试挂钩地图（WorldMapFrame 启动即存在，Blizzard_WorldMap 懒加载再补一次）
+C_Timer.After(1, SetupMapHandling)
 
 QS.UpdateTracker = UpdateTracker
 _G.QuestSkinFrame = frame
