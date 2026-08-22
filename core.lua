@@ -23,6 +23,9 @@ frame:SetClampedToScreen(true)
 frame:SetMovable(true)
 frame:EnableMouse(true)
 frame:RegisterForDrag("LeftButton")
+frame:SetFrameStrata("MEDIUM")
+frame:SetFrameLevel(80)
+frame:Raise()
 -- 极简：只有 1px 细线边框，无填充
 frame:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -207,6 +210,45 @@ end
 
 local function GetWatchedQuests()
     local out = {}
+    -- Midnight 12.1 实测：C_QuestLog.GetInfo().isWatched 已恒为 nil（你 dump 的 78 行全为 nil），
+    -- 必须走 Watch 列表 API
+    local function push(qid)
+        if not qid or qid == 0 then return end
+        local title
+        if C_QuestLog and C_QuestLog.GetTitleForQuestID then
+            title = C_QuestLog.GetTitleForQuestID(qid)
+        end
+        if not title and GetQuestLogTitle then
+            local idx = GetQuestLogIndexByID and GetQuestLogIndexByID(qid)
+            if idx then title = GetQuestLogTitle(idx) end
+        end
+        title = title or ("Quest " .. tostring(qid))
+        table.insert(out, { questID = qid, title = title })
+    end
+
+    -- 1) 优先：C_QuestLog.GetNumQuestWatches / GetQuestIDForQuestWatchIndex（12.1 仍保留）
+    if C_QuestLog and C_QuestLog.GetNumQuestWatches and C_QuestLog.GetQuestIDForQuestWatchIndex then
+        local n = C_QuestLog.GetNumQuestWatches()
+        if n and n > 0 then
+            for i = 1, n do
+                local qid = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
+                push(qid)
+            end
+            if #out > 0 then return out end
+        end
+    end
+    -- 2) 全局 GetNumQuestWatches（兼容旧客户端）
+    if GetNumQuestWatches and GetQuestIDForQuestWatchIndex then
+        local ok, n = pcall(GetNumQuestWatches)
+        if ok and n and n > 0 then
+            for i = 1, n do
+                local ok2, qid = pcall(GetQuestIDForQuestWatchIndex, i)
+                if ok2 then push(qid) end
+            end
+            if #out > 0 then return out end
+        end
+    end
+    -- 3) 旧路径兜底：isWatched（若未来暴雪修回）
     if C_QuestLog and C_QuestLog.GetNumQuestLogEntries then
         local num = C_QuestLog.GetNumQuestLogEntries()
         for i = 1, num do
@@ -215,16 +257,7 @@ local function GetWatchedQuests()
                 table.insert(out, { questID = info.questID, title = info.title })
             end
         end
-    elseif GetNumQuestWatches then
-        -- 经典 fallback
-        local n = GetNumQuestWatches()
-        for i = 1, n do
-            local qid = C_QuestLog and C_QuestLog.GetQuestIDForQuestWatchIndex and C_QuestLog.GetQuestIDForQuestWatchIndex(i) or GetQuestIDForQuestWatchIndex(i)
-            if qid then
-                local title = (C_QuestLog and C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(qid)) or GetQuestLogTitle(GetQuestLogIndexByID(qid)) or tostring(qid)
-                table.insert(out, { questID = qid, title = title })
-            end
-        end
+        if #out > 0 then return out end
     end
     return out
 end
