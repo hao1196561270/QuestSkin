@@ -168,8 +168,7 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
     hl:Hide()
     b.hl = hl
 
-    -- 左侧 2px 指示线 + 标题颜色：追踪中黄，已完成绿
-    -- 判定：全部目标 finished 或 C_QuestLog.IsComplete 视为已完成
+    -- 左侧 2px 指示线 + 标题颜色：仅超追踪的那一个黄，已完成绿，其余白
     local isComplete = false
     if C_QuestLog and C_QuestLog.IsComplete and C_QuestLog.IsComplete(questID) then
         isComplete = true
@@ -177,6 +176,14 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
         isComplete = true
         for _, o in ipairs(objectives) do if not o.finished then isComplete = false; break end end
     end
+    -- 超追踪判定（当前在地图上高亮的单任务）
+    local superID = nil
+    if C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID then
+        superID = C_SuperTrack.GetSuperTrackedQuestID()
+    elseif C_QuestLog and C_QuestLog.GetSuperTrackedQuestID then
+        superID = C_QuestLog.GetSuperTrackedQuestID()
+    end
+    local isSuperTracked = (superID and superID == questID)
 
     local accent = b:CreateTexture(nil, "ARTWORK")
     accent:SetPoint("TOPLEFT", 0, 0)
@@ -184,8 +191,10 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
     accent:SetWidth(2)
     if isComplete then
         accent:SetColorTexture(COLOR_ACCENT_COMPLETE.r, COLOR_ACCENT_COMPLETE.g, COLOR_ACCENT_COMPLETE.b, 0.9)
-    else
+    elseif isSuperTracked then
         accent:SetColorTexture(COLOR_ACCENT_TRACKING.r, COLOR_ACCENT_TRACKING.g, COLOR_ACCENT_TRACKING.b, 0.9)
+    else
+        accent:SetColorTexture(1, 1, 1, 0.18) -- 非超追踪的进行中：淡白，不抢眼
     end
 
     local titleFS = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -193,11 +202,12 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
     titleFS:SetPoint("TOPRIGHT", -6, -6)
     titleFS:SetJustifyH("LEFT")
     titleFS:SetWordWrap(true) -- Q21 A 自动换行
-    -- 保留暴雪字体，仅改颜色：黄=追踪中，绿=已完成
     if isComplete then
         titleFS:SetTextColor(COLOR_TITLE_COMPLETE.r, COLOR_TITLE_COMPLETE.g, COLOR_TITLE_COMPLETE.b)
-    else
+    elseif isSuperTracked then
         titleFS:SetTextColor(COLOR_TITLE_TRACKING.r, COLOR_TITLE_TRACKING.g, COLOR_TITLE_TRACKING.b)
+    else
+        titleFS:SetTextColor(0.95, 0.95, 0.95) -- 非超追踪：近白
     end
     titleFS:SetText(title or ("Quest " .. tostring(questID)))
     titleFS:SetSpacing(2)
@@ -317,10 +327,20 @@ local function GetObjectives(questID)
     return out
 end
 
+local function IsAnyMapShown()
+    if WorldMapFrame and WorldMapFrame:IsShown() then return true end
+    if QuestMapFrame and QuestMapFrame:IsShown() then return true end
+    -- Midnight 地图可能用 MapCanvas 承载
+    if MapCanvas and MapCanvas:IsShown() then return true end
+    -- 兜底：WoW API 也有 IsMapOpen 概念
+    if WorldMapFrame and WorldMapFrame.IsShown and WorldMapFrame:IsVisible() then return true end
+    return false
+end
+
 local function UpdateTracker()
     if not QuestSkinDB or not QuestSkinDB.enabled then return end
-    -- 地图打开期间强制隐藏，避免重叠错位（兜底：钩子未生效时也生效）
-    if WorldMapFrame and WorldMapFrame:IsShown() then
+    -- 地图打开期间强制隐藏，避免重叠错位（多帧检测，Midnight 地图框架多变）
+    if IsAnyMapShown() then
         frame:Hide()
         return
     end
@@ -403,25 +423,34 @@ function QS.ApplyEnabled(enabled)
     if QuestSkin_EnableCheck then QuestSkin_EnableCheck:SetChecked(enabled) end
 end
 
--- 地图打开/关闭时自动显隐，避免错位重叠（双保险：Hook + UpdateTracker 兜底）
+-- 地图打开/关闭时自动显隐，避免错位重叠（多帧 + hooksecurefunc 双保险）
 local function SetupMapHandling()
-    if not WorldMapFrame then return false end
-    if frame._mapHooked then return true end
-    -- HookScript 可能因 taint 失败，改用 hooksecurefunc 更稳
-    hooksecurefunc(WorldMapFrame, "Show", function()
-        if QuestSkinDB and QuestSkinDB.enabled then frame:Hide() end
-    end)
-    hooksecurefunc(WorldMapFrame, "Hide", function()
-        if QuestSkinDB and QuestSkinDB.enabled then frame:Show(); UpdateTracker() end
-    end)
-    WorldMapFrame:HookScript("OnShow", function()
-        if QuestSkinDB and QuestSkinDB.enabled then frame:Hide() end
-    end)
-    WorldMapFrame:HookScript("OnHide", function()
-        if QuestSkinDB and QuestSkinDB.enabled then frame:Show(); UpdateTracker() end
-    end)
+    local hooked = false
+    local function hookOne(f)
+        if not f then return end
+        if f._qsHooked then return end
+        pcall(function() hooksecurefunc(f, "Show", function()
+            if QuestSkinDB and QuestSkinDB.enabled then frame:Hide() end
+        end) end)
+        pcall(function() hooksecurefunc(f, "Hide", function()
+            if QuestSkinDB and QuestSkinDB.enabled then frame:Show(); UpdateTracker() end
+        end) end)
+        pcall(function() f:HookScript("OnShow", function()
+            if QuestSkinDB and QuestSkinDB.enabled then frame:Hide() end
+        end) end)
+        pcall(function() f:HookScript("OnHide", function()
+            if QuestSkinDB and QuestSkinDB.enabled then frame:Show(); UpdateTracker() end
+        end) end)
+        f._qsHooked = true
+        hooked = true
+    end
+    hookOne(WorldMapFrame)
+    hookOne(QuestMapFrame)
+    -- MapCanvas 可能在 Blizzard_MapCanvasTooltips
+    if _G["MapCanvas"] then hookOne(_G["MapCanvas"]) end
+    if frame._mapHooked and hooked == false then return true end
     frame._mapHooked = true
-    if WorldMapFrame:IsShown() and QuestSkinDB and QuestSkinDB.enabled then frame:Hide() end
+    if IsAnyMapShown() and QuestSkinDB and QuestSkinDB.enabled then frame:Hide() end
     return true
 end
 
@@ -501,11 +530,16 @@ end
 
 -- 启动时也尝试挂钩地图（WorldMapFrame 启动即存在，Blizzard_WorldMap 懒加载再补一次）
 C_Timer.After(1, SetupMapHandling)
+-- 超追踪切换时刷新黄/绿标记
+local superEv = CreateFrame("Frame")
+superEv:RegisterEvent("SUPER_TRACKING_CHANGED")
+superEv:SetScript("OnEvent", function()
+    if QuestSkinDB and QuestSkinDB.enabled then UpdateTracker() end
+end)
 -- 兜底轮询：地图打开期间强制保持隐藏（防止 Hook 被 taint 拦截时仍能生效）
 C_Timer.NewTicker(0.4, function()
     if not QuestSkinDB or not QuestSkinDB.enabled then return end
-    if not WorldMapFrame then return end
-    if WorldMapFrame:IsShown() then
+    if IsAnyMapShown() then
         if frame:IsShown() then frame:Hide() end
     else
         if not frame:IsShown() then
