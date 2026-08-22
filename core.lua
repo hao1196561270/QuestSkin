@@ -126,7 +126,11 @@ local function ClearBlocks()
 end
 
 -- 颜色（保留暴雪字体，只改颜色与间距）
-local COLOR_TITLE = { r=1, g=0.82, b=0 }          -- 任务标题：金色
+-- 需求：追踪中黄、已完成绿（标题与左侧指示线联动）
+local COLOR_TITLE_TRACKING = { r=1, g=0.82, b=0 }   -- 追踪中：黄/金
+local COLOR_TITLE_COMPLETE = { r=0.35, g=1, b=0.35 } -- 已完成：绿
+local COLOR_ACCENT_TRACKING = { r=1, g=0.82, b=0 }   -- 左侧 2px 黄
+local COLOR_ACCENT_COMPLETE = { r=0.35, g=1, b=0.35 } -- 左侧 2px 绿
 local COLOR_OBJ_INCOMPLETE = { r=0.95, g=0.95, b=0.95 }
 local COLOR_OBJ_COMPLETE   = { r=0.35, g=1, b=0.35 }
 local COLOR_EMPTY = { r=0.5, g=0.5, b=0.5 }
@@ -164,18 +168,24 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
     hl:Hide()
     b.hl = hl
 
-    -- 左侧 2px 指示线
+    -- 左侧 2px 指示线 + 标题颜色：追踪中黄，已完成绿
+    -- 判定：全部目标 finished 或 C_QuestLog.IsComplete 视为已完成
+    local isComplete = false
+    if C_QuestLog and C_QuestLog.IsComplete and C_QuestLog.IsComplete(questID) then
+        isComplete = true
+    elseif objectives and #objectives > 0 then
+        isComplete = true
+        for _, o in ipairs(objectives) do if not o.finished then isComplete = false; break end end
+    end
+
     local accent = b:CreateTexture(nil, "ARTWORK")
     accent:SetPoint("TOPLEFT", 0, 0)
     accent:SetPoint("BOTTOMLEFT", 0, 0)
     accent:SetWidth(2)
-    -- 有完成项则绿，否则淡白
-    local hasComplete = false
-    for _, o in ipairs(objectives or {}) do if o.finished then hasComplete = true; break end end
-    if hasComplete then
-        accent:SetColorTexture(COLOR_OBJ_COMPLETE.r, COLOR_OBJ_COMPLETE.g, COLOR_OBJ_COMPLETE.b, 0.9)
+    if isComplete then
+        accent:SetColorTexture(COLOR_ACCENT_COMPLETE.r, COLOR_ACCENT_COMPLETE.g, COLOR_ACCENT_COMPLETE.b, 0.9)
     else
-        accent:SetColorTexture(1, 1, 1, 0.18)
+        accent:SetColorTexture(COLOR_ACCENT_TRACKING.r, COLOR_ACCENT_TRACKING.g, COLOR_ACCENT_TRACKING.b, 0.9)
     end
 
     local titleFS = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -183,8 +193,12 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
     titleFS:SetPoint("TOPRIGHT", -6, -6)
     titleFS:SetJustifyH("LEFT")
     titleFS:SetWordWrap(true) -- Q21 A 自动换行
-    -- Q17 刻意保留暴雪字体：不设 Font，只用模板字体的颜色
-    titleFS:SetTextColor(COLOR_TITLE.r, COLOR_TITLE.g, COLOR_TITLE.b)
+    -- 保留暴雪字体，仅改颜色：黄=追踪中，绿=已完成
+    if isComplete then
+        titleFS:SetTextColor(COLOR_TITLE_COMPLETE.r, COLOR_TITLE_COMPLETE.g, COLOR_TITLE_COMPLETE.b)
+    else
+        titleFS:SetTextColor(COLOR_TITLE_TRACKING.r, COLOR_TITLE_TRACKING.g, COLOR_TITLE_TRACKING.b)
+    end
     titleFS:SetText(title or ("Quest " .. tostring(questID)))
     titleFS:SetSpacing(2)
 
