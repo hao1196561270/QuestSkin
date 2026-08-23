@@ -1,0 +1,68 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Tag: ${TAG}, Version: ${VERSION}"
+
+      - name: Build zip (zero dependencies, pure bash)
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          PKG="QuestSkin-${TAG}.zip"
+          echo "Building ${PKG} ..."
+
+          # Create staging dir with package-as layout
+          STAGE="stage/QuestSkin"
+          rm -rf stage
+          mkdir -p "$STAGE/locales"
+
+          cp QuestSkin.toc "$STAGE/"
+          cp core.lua "$STAGE/"
+          cp config.lua "$STAGE/"
+          cp LICENSE "$STAGE/" 2>/dev/null || true
+          cp README.md "$STAGE/" 2>/dev/null || true
+          cp locales/init.lua "$STAGE/locales/"
+          cp locales/zhCN.lua "$STAGE/locales/"
+          cp locales/enUS.lua "$STAGE/locales/"
+
+          # Validate TOC version matches tag (warn only)
+          TOC_VERSION="$(grep -E '^## Version:' "$STAGE/QuestSkin.toc" | awk '{print $3}')"
+          echo "TOC Version: ${TOC_VERSION}, Tag Version: ${VERSION}"
+          if [ "${TOC_VERSION}" != "${VERSION}" ]; then
+            echo "::warning::TOC Version (${TOC_VERSION}) != tag version (${VERSION})"
+          fi
+
+          # Zip — exclude nothing extra; pure bash coreutils
+          (cd stage && zip -r "../${PKG}" QuestSkin)
+          ls -lh "${PKG}"
+          sha256sum "${PKG}" || shasum -a 256 "${PKG}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: QuestSkin-${{ steps.version.outputs.tag }}.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

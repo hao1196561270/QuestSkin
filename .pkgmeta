@@ -1,0 +1,30 @@
+package-as: QuestSkin
+
+# No externals — zero dependencies
+externals: {}
+
+# Ignore patterns when building zip
+ignore:
+  - .git
+  - .github
+  - .pkgmeta
+  - .luacheckrc
+  - .stylua.toml
+  - .editorconfig
+  - .DS_Store
+  - Thumbs.db
+  - "*.zip"
+  - "*.tar.gz"
+  - screenshots
+  - docs
+
+# Files explicitly included in the package
+include:
+  - QuestSkin.toc
+  - core.lua
+  - config.lua
+  - LICENSE
+  - README.md
+  - locales/init.lua
+  - locales/zhCN.lua
+  - locales/enUS.lua

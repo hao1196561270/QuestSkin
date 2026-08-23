@@ -19,7 +19,7 @@ local cb = CreateFrame("CheckButton", "QuestSkinEnableCheck", panel, "InterfaceO
 cb:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -20)
 cb.Text:SetText(L["Enable QuestSkin"])
 cb.tooltipText = L["Enable hint"]
-cb.tooltipRequirement = L["Drag to move"]
+cb.tooltipRequirement = nil
 
 local hint = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 hint:SetPoint("TOPLEFT", cb, "BOTTOMLEFT", 6, -6)
@@ -104,16 +104,24 @@ local registered = false
 local function RegisterSettings()
     if registered then return end
     if Settings and Settings.RegisterCanvasLayoutCategory then
-        local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
-        category.ID = panel.name
+        local category, layout = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
+        -- 注意：不要覆写 category.ID，GetID() 返回的是暴雪分配的数值ID
         Settings.RegisterAddOnCategory(category)
         QuestSkin_SettingsCategory = category
+        QuestSkin_SettingsLayout = layout
+        if QuestSkin then QuestSkin.SettingsCategory = category end
         registered = true
+        return category
     elseif InterfaceOptions_AddCategory then
         InterfaceOptions_AddCategory(panel)
         registered = true
     end
 end
+-- 暴露给 core.lua 的打开入口（供标题栏按钮直接调用，兼容两种加载时序）
+_G.QuestSkin_RegisterSettings = RegisterSettings
+QuestSkin_RegisterSettings = RegisterSettings
+QuestSkin = QuestSkin or {}
+QuestSkin._RegisterSettings = RegisterSettings
 
 -- 仅在 QuestSkin 加载时注册一次；不再监听 Blizzard_Settings 做二次注册
 local reg = CreateFrame("Frame")
@@ -161,13 +169,53 @@ SlashCmdList["QUESTSKIN"] = function(msg)
         print("|cffff8888QuestSkin|r: " .. L["Tracker restored"])
     elseif msg == "reset" then
         if QuestSkin and QuestSkin.ResetPosition then QuestSkin.ResetPosition() end
-    else
-        if Settings and Settings.OpenToCategory and QuestSkin_SettingsCategory then
-            Settings.OpenToCategory(QuestSkin_SettingsCategory:GetID())
-        elseif InterfaceOptionsFrame_OpenToCategory then
-            InterfaceOptionsFrame_OpenToCategory(panel)
-            InterfaceOptionsFrame_OpenToCategory(panel)
+    elseif msg == "debug" then
+        local nQ = 0
+        if C_QuestLog and C_QuestLog.GetNumQuestWatches then
+            local ok, v = pcall(C_QuestLog.GetNumQuestWatches)
+            if ok then nQ = v or 0 end
         end
-        print("|cff88ff88QuestSkin|r: /qs on | /qs off | /qs reset — 重置位置 | /qs — 打开设置")
+        local nA = 0
+        local aList = ""
+        if C_ContentTracking and C_ContentTracking.GetTrackedIDs then
+            local t = 2
+            if Enum and Enum.ContentTrackingType and Enum.ContentTrackingType.Achievement then t = Enum.ContentTrackingType.Achievement end
+            local ok, ids = pcall(C_ContentTracking.GetTrackedIDs, t)
+            if ok and ids then nA = #ids; aList = table.concat(ids, ",") end
+        elseif GetTrackedAchievements then
+            local ok, a1,a2,a3 = pcall(GetTrackedAchievements)
+            if ok and a1 then nA = 1; if a2 then nA=2 end; if a3 then nA=3 end; aList = tostring(a1) end
+        end
+        local wm = WorldMapFrame and WorldMapFrame.IsShown and tostring(WorldMapFrame:IsShown()) or "nil"
+        local wmVis = WorldMapFrame and WorldMapFrame.IsVisible and tostring(WorldMapFrame:IsVisible()) or "nil"
+        local qm = QuestMapFrame and QuestMapFrame.IsShown and tostring(QuestMapFrame:IsShown()) or "nil"
+        local mf = _G["MapFrame"] and _G["MapFrame"].IsShown and tostring(_G["MapFrame"]:IsShown()) or "nil"
+        local enabled = QuestSkinDB and tostring(QuestSkinDB.enabled) or "nil"
+        local shown = _G.QuestSkinFrame and tostring(_G.QuestSkinFrame:IsShown()) or "nil"
+        print("|cff88ff88QuestSkin debug|r: enabled="..enabled.." frameShown="..shown.." WorldMap:IsShown="..wm.." IsVisible="..wmVis.." QuestMap:IsShown="..qm.." MapFrame:IsShown="..mf.." watches="..tostring(nQ).." achievements="..tostring(nA).." ["..aList.."]")
+        if QuestSkin and QuestSkin.UpdateTracker then QuestSkin.UpdateTracker() end
+        print("|cff88ff88QuestSkin debug|r: after UpdateTracker frameShown="..tostring(_G.QuestSkinFrame and _G.QuestSkinFrame:IsShown()))
+    elseif msg == "refresh" then
+        if QuestSkin and QuestSkin.UpdateTracker then QuestSkin.UpdateTracker(); print("|cff88ff88QuestSkin|r: 已刷新") end
+    else
+        -- 统一走 QS.OpenSettings，保证标题按钮/斜杠一致
+        local opened = false
+        if QuestSkin and QuestSkin.OpenSettings then
+            local ok = pcall(QuestSkin.OpenSettings)
+            if ok then opened = true end
+        end
+        if not opened then
+            if Settings and Settings.OpenToCategory and QuestSkin_SettingsCategory then
+                local cat = QuestSkin_SettingsCategory
+                local ok = false
+                if cat.GetID then ok = pcall(Settings.OpenToCategory, cat:GetID()) end
+                if not ok and cat.ID then ok = pcall(Settings.OpenToCategory, cat.ID) end
+                if not ok then pcall(Settings.OpenToCategory, cat) end
+            elseif InterfaceOptionsFrame_OpenToCategory then
+                pcall(InterfaceOptionsFrame_OpenToCategory, panel)
+                pcall(InterfaceOptionsFrame_OpenToCategory, panel)
+            end
+        end
+        print("|cff88ff88QuestSkin|r: /qs on | /qs off | /qs reset — 重置位置 | /qs debug — 诊断 | /qs refresh — 强制刷新 | /qs — 打开设置")
     end
 end

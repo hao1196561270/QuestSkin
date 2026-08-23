@@ -29,6 +29,8 @@ QuestSkin 完全重绘替代暴雪默认的 `ObjectiveTrackerFrame`（任务/成
 
 ## 📸 预览
 
+<!-- TODO: 替换实机截图 — 建议截图：1) 空列表/有任务对比 2) 超追踪◆高亮 3) 地图打开自动隐藏 4) 设置面板宽度/高度滑条 -->
+
 ```
 ┌─────────────────────────────────┐
 │ 任务  4              按住左键拖动 │  ← 标题栏（计数 + 提示）
@@ -178,6 +180,7 @@ A：`/qs off` 或设置里取消勾选。
 
 ## 🗓️ 更新日志
 
+- **v1.0.0** — 首个正式版：地图动态 Ticker（`OnShow` 1.0s 轮询 / `OnHide` 5s 后取消，替代常驻 0.4s）、超追踪高亮（◆ 超追踪 / ◇ 普通追踪，标题与指示线联动）、精简 5 项右键菜单（分享/放弃/取消追踪…，移除 UIDropDownMenu/Share/BtW/Wowhead 路径）、成就追踪入 v1（`C_ContentTracking`/`GetTrackedAchievements`）、放弃按钮战斗中置灰（`InCombatLockdown`）
 - **v0.1.3** — 地图兜底：`UpdateTracker` 强检 + `hooksecurefunc` 双钩 + 0.4s 轮询，地图打开必隐藏
 - **v0.1.2** — Midnight 12.1 `isWatched=nil` 修复：改用 `GetNumQuestWatches` 列表，置顶防遮挡
 - **v0.1.1** — 设置面板去重 + 宽度同步/滚动/锚点修复 + 滚轮支持
