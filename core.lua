@@ -761,22 +761,17 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
         accent:SetColorTexture(1, 1, 1, 0.18) -- 非超追踪的进行中：淡白，不抢眼
     end
 
-    -- 右侧追踪切换按钮（点击切换该任务为追踪目标）
+    -- 右侧追踪切换按钮（无方框遮罩，仅 ◆/◇ 符号，hover 仅变色）
     local trackBtn = CreateFrame("Button", nil, b)
     trackBtn:SetSize(18, 18)
     trackBtn:SetPoint("TOPRIGHT", -4, -4)
     trackBtn:SetFrameLevel(b:GetFrameLevel() + 5)
     trackBtn:RegisterForClicks("LeftButtonUp")
-    local btnBg = trackBtn:CreateTexture(nil, "BACKGROUND")
-    btnBg:SetAllPoints()
-    btnBg:SetColorTexture(1, 1, 1, 0.06)
-    trackBtn.bg = btnBg
     local btnIcon = trackBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     btnIcon:SetPoint("CENTER", 0, 0)
     if isSuperTracked then
         btnIcon:SetText("◆")
         btnIcon:SetTextColor(COLOR_TITLE_TRACKING.r, COLOR_TITLE_TRACKING.g, COLOR_TITLE_TRACKING.b)
-        btnBg:SetColorTexture(COLOR_ACCENT_TRACKING.r, COLOR_ACCENT_TRACKING.g, COLOR_ACCENT_TRACKING.b, 0.18)
     else
         btnIcon:SetText("◇")
         btnIcon:SetTextColor(0.7, 0.7, 0.7)
@@ -791,14 +786,18 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
         end
         GameTooltip:AddLine(title, 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
-        self.bg:SetColorTexture(1, 1, 1, 0.12)
+        if isSuperTracked then
+            self.icon:SetTextColor(1, 1, 1)
+        else
+            self.icon:SetTextColor(COLOR_TITLE_TRACKING.r, COLOR_TITLE_TRACKING.g, COLOR_TITLE_TRACKING.b)
+        end
     end)
     trackBtn:SetScript("OnLeave", function(self)
         GameTooltip:Hide()
         if isSuperTracked then
-            self.bg:SetColorTexture(COLOR_ACCENT_TRACKING.r, COLOR_ACCENT_TRACKING.g, COLOR_ACCENT_TRACKING.b, 0.18)
+            self.icon:SetTextColor(COLOR_TITLE_TRACKING.r, COLOR_TITLE_TRACKING.g, COLOR_TITLE_TRACKING.b)
         else
-            self.bg:SetColorTexture(1, 1, 1, 0.06)
+            self.icon:SetTextColor(0.7, 0.7, 0.7)
         end
     end)
     trackBtn:SetScript("OnClick", function(self)
