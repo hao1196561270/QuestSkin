@@ -29,12 +29,15 @@ local function MigrateDB(db)
         if type(db.y) ~= "number" then db.y = defaults.y end
         if type(db.point) ~= "string" then db.point = defaults.point end
         if type(db.relativePoint) ~= "string" then db.relativePoint = defaults.relativePoint end
+        -- 保证顶部锚点，从上到下展开
+        if db.point and not db.point:find("TOP") then db.point, db.relativePoint = defaults.point, defaults.relativePoint; db.x, db.y = defaults.x, defaults.y end
         if db.enabled == nil then db.enabled = defaults.enabled end
         db.version = defaults.version
     end
     for k, v in pairs(defaults) do if db[k] == nil then db[k] = v end end
     db.width = math.max(200, math.min(420, db.width))
     db.maxHeight = math.max(180, math.min(700, db.maxHeight))
+    if db.point and not db.point:find("TOP") then db.point, db.relativePoint = defaults.point, defaults.relativePoint; db.x, db.y = defaults.x, defaults.y end
     return db
 end
 QS.MigrateDB = MigrateDB
@@ -119,15 +122,33 @@ frame:SetBackdrop({
 frame:SetBackdropColor(0, 0, 0, 0.0)          -- 透明底
 frame:SetBackdropBorderColor(1, 1, 1, 0.12)   -- 细线
 
--- 拖动保存
+-- 拖动保存（归一化为顶部锚点，保证从上到下展开不居中）
+local function SaveFramePosition()
+    if not QuestSkinDB then return end
+    local left, top = frame:GetLeft(), frame:GetTop()
+    if not left or not top then
+        local point, _, relativePoint, x, y = frame:GetPoint()
+        QuestSkinDB.point, QuestSkinDB.relativePoint, QuestSkinDB.x, QuestSkinDB.y = point, relativePoint, x, y
+        return
+    end
+    local uiW, uiH = UIParent:GetWidth(), UIParent:GetHeight()
+    local scale = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    -- 转为 UIParent 坐标
+    left, top = left * scale, top * scale
+    local isLeft = (left + frame:GetWidth()*scale/2) < uiW/2
+    if isLeft then
+        QuestSkinDB.point, QuestSkinDB.relativePoint = "TOPLEFT", "TOPLEFT"
+        QuestSkinDB.x, QuestSkinDB.y = left, top - uiH
+    else
+        QuestSkinDB.point, QuestSkinDB.relativePoint = "TOPRIGHT", "TOPRIGHT"
+        QuestSkinDB.x, QuestSkinDB.y = left + frame:GetWidth()*scale - uiW, top - uiH
+    end
+end
+
 frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
 frame:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
-    local point, _, relativePoint, x, y = self:GetPoint()
-    QuestSkinDB.point = point
-    QuestSkinDB.relativePoint = relativePoint
-    QuestSkinDB.x = x
-    QuestSkinDB.y = y
+    SaveFramePosition()
 end)
 
 -- 标题栏
@@ -189,13 +210,7 @@ header:RegisterForDrag("LeftButton")
 header:SetScript("OnDragStart", function() frame:StartMoving() end)
 header:SetScript("OnDragStop", function()
     frame:StopMovingOrSizing()
-    local point, _, relativePoint, x, y = frame:GetPoint()
-    if QuestSkinDB then
-        QuestSkinDB.point = point
-        QuestSkinDB.relativePoint = relativePoint
-        QuestSkinDB.x = x
-        QuestSkinDB.y = y
-    end
+    SaveFramePosition()
 end)
 
 -- 分隔线（标题下）
@@ -1357,6 +1372,11 @@ ev:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON then
             QuestSkinDB = MigrateDB(QuestSkinDB)
+            -- 归一化旧存档的居中/底部锚点为顶部锚点，保证从上到下展开
+            if QuestSkinDB.point and not QuestSkinDB.point:find("TOP") then
+                QuestSkinDB.point, QuestSkinDB.relativePoint = defaults.point, defaults.relativePoint
+                QuestSkinDB.x, QuestSkinDB.y = defaults.x, defaults.y
+            end
             -- 恢复位置与宽度
             frame:ClearAllPoints()
             frame:SetPoint(QuestSkinDB.point, UIParent, QuestSkinDB.relativePoint, QuestSkinDB.x, QuestSkinDB.y)
