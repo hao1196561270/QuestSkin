@@ -392,6 +392,68 @@ local function AbandonQuestInternal(questID)
     end
 end
 
+-- Wowhead 复制（复刻 EnhanceQoL 健壮实现：AutoFocus + Highlight + CursorPosition）
+local function QS_ShowCopyURL(url)
+    if type(url) ~= "string" or url == "" then return end
+    if not StaticPopupDialogs["QUESTSKIN_COPY_URL"] then
+        StaticPopupDialogs["QUESTSKIN_COPY_URL"] = {
+            text = "Wowhead 链接 (Ctrl+C 复制)",
+            button1 = OKAY or "确定",
+            hasEditBox = true,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+            OnShow = function(self, data)
+                local eb = self.editBox or self.GetEditBox and self:GetEditBox()
+                if not eb then return end
+                eb:SetAutoFocus(true)
+                eb:SetText(data or "")
+                eb:HighlightText()
+                eb:SetCursorPosition(0)
+            end,
+            OnAccept = function(self) end,
+            EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+        }
+    end
+    StaticPopup_Show("QUESTSKIN_COPY_URL", nil, nil, url)
+end
+
+local function CopyWowheadLink(questID)
+    local url = ("https://www.wowhead.com/quest=%d"):format(questID)
+    QS_ShowCopyURL(url)
+end
+
+-- BtWQuests 开启任务链（兼容 v2.63.1 真入口 SelectFromLink/GetQuestItem，无 ShowChainForQuest 时回退）
+local function OpenBtWChain(questID)
+    if not questID then return end
+    -- 1) 历史符号
+    if BtWQuests and BtWQuests.ShowChainForQuest then
+        local ok = pcall(BtWQuests.ShowChainForQuest, questID)
+        if ok then return end
+    end
+    -- 2) 真入口：Database:GetQuestItem → Frame:SelectItem
+    if BtWQuestsDatabase and BtWQuestsFrame and BtWQuestsFrame.SelectItem then
+        local ok, item = pcall(function()
+            local chars = BtWQuestsCharacters and BtWQuestsCharacters:GetPlayer()
+            return BtWQuestsDatabase:GetQuestItem(questID, chars)
+        end)
+        if ok and item and item.item then
+            pcall(function() BtWQuestsFrame:SelectCharacter(UnitName("player"), GetRealmName()) end)
+            local ok2 = pcall(BtWQuestsFrame.SelectItem, BtWQuestsFrame, item.item)
+            if ok2 then return end
+        end
+    end
+    -- 3) 链接回退：garrmission 超链
+    if BtWQuestsDatabase and BtWQuestsFrame and BtWQuestsFrame.SelectFromLink then
+        local link = string.format("|Hgarrmission:btwquests:quest:%d|h", questID)
+        local ok = pcall(BtWQuestsFrame.SelectFromLink, BtWQuestsFrame, link, true)
+        if ok then return end
+    end
+    -- 4) 未安装或失败提示
+    print("|cff888888QuestSkin|r: 未安装 BtWQuests 或无法打开任务链 QuestID "..tostring(questID))
+end
+
 -- ========== 右键原生风格菜单（MenuUtil / UIDropDownMenu / 自绘兜底） ==========
 local QuestSkinContextMenu = nil
 local function HideQuestSkinContextMenu()
@@ -577,6 +639,13 @@ local function ShowCustomQuestMenu(questID, title, anchor)
     local inCombat = InCombatLockdown and InCombatLockdown()
     add2("放弃", function() AbandonQuestInternal(questID) end, { isDisabled = inCombat })
 
+    -- BtWQuests + Wowhead（按需常驻，未装则点击提示）
+    add2("", nil, { isSeparator = true })
+    add2("BtWQuests", nil, { isTitle = true })
+    add2("开启任务链", function() OpenBtWChain(questID) end)
+    add2("", nil, { isSeparator = true })
+    add2("复制 Wowhead 链接", function() CopyWowheadLink(questID) end)
+
     menu:SetHeight(h + 12)
     menu:SetWidth(220)
     menu:ClearAllPoints()
@@ -626,6 +695,11 @@ local function ShowQuestContextMenu(questID, title, anchor)
                 else
                     root:CreateButton("放弃", function() AbandonQuestInternal(questID) end)
                 end
+                root:CreateDivider()
+                root:CreateTitle("BtWQuests")
+                root:CreateButton("开启任务链", function() OpenBtWChain(questID) end)
+                root:CreateDivider()
+                root:CreateButton("复制 Wowhead 链接", function() CopyWowheadLink(questID) end)
             end)
         end)
         if ok then return end
