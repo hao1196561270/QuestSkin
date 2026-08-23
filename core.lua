@@ -1219,20 +1219,50 @@ local function UpdateTracker()
 
     local y = 0
     local gap = 8 -- Q7 布局间距：块间距
-    for i, q in ipairs(watchedQuests) do
-        local objs = GetObjectives(q.questID)
-        local b, h = CreateQuestBlock(q.questID, q.title, objs, i, y)
-        if h < 20 then h = 40 end
+
+    local function CreateSectionHeader(text, anchorY)
+        local b = CreateFrame("Frame", nil, content)
+        b:SetPoint("TOPLEFT", 0, anchorY)
+        b:SetPoint("TOPRIGHT", 0, anchorY)
+        b:SetHeight(18)
+        local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("LEFT", 6, 0)
+        fs:SetText(text)
+        fs:SetTextColor(0.65, 0.65, 0.65)
+        fs:SetFontObject(GameFontNormalSmall)
+        -- 右侧淡线
+        local line = b:CreateTexture(nil, "ARTWORK")
+        line:SetPoint("LEFT", fs, "RIGHT", 8, 0)
+        line:SetPoint("RIGHT", -6, 0)
+        line:SetHeight(1)
+        line:SetColorTexture(1, 1, 1, 0.08)
         table.insert(blocks, b)
-        y = y - (h + gap)
+        return b, 18
     end
-    -- 成就紧接任务之后，若两者都存在则加一条更淡的分隔（已由块间细线承担，这里仅留 gap）
-    for i, a in ipairs(watchedAchievements) do
-        local objs = GetAchievementObjectives(a.achievementID)
-        local b, h = CreateAchievementBlock(a.achievementID, a.title, objs, i, y)
-        if h < 20 then h = 40 end
-        table.insert(blocks, b)
-        y = y - (h + gap)
+
+    if nQ > 0 then
+        local hb, hh = CreateSectionHeader(L["Quests"], y)
+        y = y - (hh + 6)
+        for i, q in ipairs(watchedQuests) do
+            local objs = GetObjectives(q.questID)
+            local b, h = CreateQuestBlock(q.questID, q.title, objs, i, y)
+            if h < 20 then h = 40 end
+            table.insert(blocks, b)
+            y = y - (h + gap)
+        end
+    end
+    if nA > 0 then
+        -- 若前面已有任务，中间多留 10px 间距
+        if nQ > 0 then y = y - 4 end
+        local hb, hh = CreateSectionHeader(L["Achievements"], y)
+        y = y - (hh + 6)
+        for i, a in ipairs(watchedAchievements) do
+            local objs = GetAchievementObjectives(a.achievementID)
+            local b, h = CreateAchievementBlock(a.achievementID, a.title, objs, i, y)
+            if h < 20 then h = 40 end
+            table.insert(blocks, b)
+            y = y - (h + gap)
+        end
     end
     local totalH = math.abs(y) + 6
     content:SetHeight(totalH)
