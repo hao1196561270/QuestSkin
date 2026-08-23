@@ -837,7 +837,7 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
 
     local y = - (titleFS:GetStringHeight() + 10)
 
-    -- 目标行
+    -- 目标行 + 管状进度条（类似官方，带数值时显示）
     local objFSList = {}
     if objectives and #objectives > 0 then
         for _, obj in ipairs(objectives) do
@@ -849,11 +849,47 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
             fs:SetSpacing(1)
             local col = obj.finished and COLOR_OBJ_COMPLETE or COLOR_OBJ_INCOMPLETE
             fs:SetTextColor(col.r, col.g, col.b)
-            -- 前缀圆点
             local prefix = obj.finished and "● " or "○ "
             fs:SetText(prefix .. (obj.text or ""))
             y = y - (fs:GetStringHeight() + 4)
             table.insert(objFSList, fs)
+            -- 进度条：有数值时显示（优先 numFulfilled/numRequired，次选文本中 x/y）
+            local prog, needBar = nil, false
+            if obj.numFulfilled and obj.numRequired and obj.numRequired > 0 then
+                prog = obj.numFulfilled / obj.numRequired; needBar = true
+            elseif obj.qty and obj.req and obj.req > 1 then
+                prog = obj.qty / obj.req; needBar = true
+            elseif obj.text then
+                local cur, max = obj.text:match("(%d+)%s*/%s*(%d+)")
+                if cur and max then
+                    local c, m = tonumber(cur), tonumber(max)
+                    if c and m and m > 0 then prog = math.min(1, c/m); needBar = m > 1 or c ~= m end
+                elseif obj.text:match("%d+%%") then
+                    local pct = obj.text:match("(%d+)%%")
+                    if pct then prog = tonumber(pct)/100; needBar = true end
+                end
+            end
+            if needBar and prog then
+                if prog > 1 then prog = 1 end
+                if prog < 0 then prog = 0 end
+                local bar = CreateFrame("StatusBar", nil, b, "BackdropTemplate")
+                bar:SetPoint("TOPLEFT", 14, y)
+                bar:SetPoint("TOPRIGHT", -6, y)
+                bar:SetHeight(6)
+                bar:SetMinMaxValues(0, 1)
+                bar:SetValue(prog)
+                bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+                bar:GetStatusBarTexture():SetDrawLayer("ARTWORK")
+                local bc = obj.finished and COLOR_OBJ_COMPLETE or (isSuperTracked and COLOR_ACCENT_TRACKING or {r=1,g=0.82,b=0})
+                -- 兼容不同 col 结构
+                local br, bg, bb = bc.r or 1, bc.g or 0.82, bc.b or 0
+                bar:SetStatusBarColor(br, bg, bb, 0.95)
+                bar:SetBackdrop({ bgFile="Interface\\Buttons\\WHITE8x8", edgeFile="Interface\\Buttons\\WHITE8x8", edgeSize=1, insets={left=0,right=0,top=0,bottom=0} })
+                bar:SetBackdropColor(0,0,0,0.35)
+                bar:SetBackdropBorderColor(1,1,1,0.10)
+                -- 背景微暗
+                y = y - 10
+            end
         end
     else
         local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1147,6 +1183,33 @@ local function CreateAchievementBlock(achievementID, title, objectives, index, a
             end
             fs:SetText(txt)
             y = y - (fs:GetStringHeight() + 4)
+            -- 成就管状进度条（有 qty/req 或文本 x/y 时）
+            local prog, needBar = nil, false
+            if obj.qty and obj.req and obj.req > 1 then
+                prog = obj.qty / obj.req; needBar = true
+            elseif obj.text and obj.text:match("(%d+)%s*/%s*(%d+)") then
+                local cur, max = obj.text:match("(%d+)%s*/%s*(%d+)")
+                if cur and max then local c,m=tonumber(cur),tonumber(max); if c and m and m>0 then prog=math.min(1,c/m); needBar=m>1 or c~=m end end
+            end
+            if needBar and prog then
+                if prog>1 then prog=1 end
+                if prog<0 then prog=0 end
+                local bar = CreateFrame("StatusBar", nil, b, "BackdropTemplate")
+                bar:SetPoint("TOPLEFT", 14, y)
+                bar:SetPoint("TOPRIGHT", -6, y)
+                bar:SetHeight(6)
+                bar:SetMinMaxValues(0,1)
+                bar:SetValue(prog)
+                bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+                bar:GetStatusBarTexture():SetDrawLayer("ARTWORK")
+                local br,bg,bb = 0.35,1,0.35
+                if not obj.finished then br,bg,bb = 1,0.82,0 end
+                bar:SetStatusBarColor(br,bg,bb,0.95)
+                bar:SetBackdrop({ bgFile="Interface\\Buttons\\WHITE8x8", edgeFile="Interface\\Buttons\\WHITE8x8", edgeSize=1, insets={left=0,right=0,top=0,bottom=0} })
+                bar:SetBackdropColor(0,0,0,0.35)
+                bar:SetBackdropBorderColor(1,1,1,0.10)
+                y = y - 10
+            end
         end
     else
         local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
