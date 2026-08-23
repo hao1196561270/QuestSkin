@@ -837,9 +837,19 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
 
     local y = - (titleFS:GetStringHeight() + 10)
 
-    -- 目标行
+    -- 目标行：已完成则仅显示“完成”二字
     local objFSList = {}
-    if objectives and #objectives > 0 then
+    if isComplete then
+        local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("TOPLEFT", 14, y)
+        fs:SetPoint("TOPRIGHT", -6, y)
+        fs:SetJustifyH("LEFT")
+        fs:SetWordWrap(true)
+        fs:SetTextColor(COLOR_OBJ_COMPLETE.r, COLOR_OBJ_COMPLETE.g, COLOR_OBJ_COMPLETE.b)
+        fs:SetText("完成")
+        y = y - (fs:GetStringHeight() + 4)
+        table.insert(objFSList, fs)
+    elseif objectives and #objectives > 0 then
         for _, obj in ipairs(objectives) do
             local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             fs:SetPoint("TOPLEFT", 14, y)
@@ -849,7 +859,6 @@ local function CreateQuestBlock(questID, title, objectives, index, anchorY)
             fs:SetSpacing(1)
             local col = obj.finished and COLOR_OBJ_COMPLETE or COLOR_OBJ_INCOMPLETE
             fs:SetTextColor(col.r, col.g, col.b)
-            -- 前缀圆点
             local prefix = obj.finished and "● " or "○ "
             fs:SetText(prefix .. (obj.text or ""))
             y = y - (fs:GetStringHeight() + 4)
